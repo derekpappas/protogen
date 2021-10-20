@@ -2,8 +2,23 @@ from git import Repo
 from pathlib import Path
 import argparse
 import os
+import shutil
 import subprocess
 
+import json
+# from google.protobuf.json_format import Parse
+
+# https://github.com/json-to-proto/json-to-proto.github.io
+
+# message = Parse(json.dumps({
+#     "first": "a string",
+#     "second": True,
+#     "third": 123456789
+# }), Thing())
+
+# print(message.first)  # "a string"
+# print(message.second) # True
+# print(message.third)  # 123456789
 
 # Example directory layout
 #
@@ -51,17 +66,34 @@ class utils:
         """
         Clone a repo and insert it at the target_dir locations
         """
-        if not target_dir.exists():
-            print(f"INFO cloning {target_dir}")
-            Repo.clone_from(repo, target_dir)
-        else:
-            print(f"INFO dir exists can't clone {target_dir}")
+        if target_dir.exists():
+            utils.rmtree(target_dir)
+
+        utils.mkdirpath(target_dir)
+
+        print(f"INFO start cloning {repo} to {target_dir}")
+        Repo.clone_from(repo, target_dir)
+        print(f"INFO done cloning {repo} to {target_dir}")
 
     def cd(self, dir):
         try:
             os.chdir(dir)
-        except:
+        except OSError as e:
+            print("Error: %s - %s." % (e.filename, e.strerror))
             print(f"Error: Could not cd to {dir}")
+
+    def rmtree(self, path):
+        try:
+            shutil.rmtree(path)
+        except OSError as e:
+            print("Error: %s - %s." % (e.filename, e.strerror))
+
+    def cptree(self, path):
+        try:
+            shutil.cptree(path)
+        except OSError as e:
+            print("Error: %s - %s." % (e.filename, e.strerror))
+
 
 utils = utils()
 
@@ -72,6 +104,8 @@ class ProtoGen:
         self.proto_dir = proto_dir
         self.options = ""
         self.includes = ""
+        self.grpc_tmp = "/tmp/grpc_tmp"
+        self.grpc_tmp_path = Path(self.grpc_tmp)
 
     def makeDirectoryStructure(self):
         self.includes = f"{self.root_dir}/include/googleapis/google"
@@ -83,14 +117,17 @@ class ProtoGen:
         self.options = f"{self.root_dir}/proto/{self.proto_project_name}/v1"
         utils.mkdirpath(self.options)
 
-    def addGRPCRepos(self):
-        grpc_tmp = "/tmp/grpc_tmp/"
-        grpc_java = "/tmp/grpc_tmp/grpc_java/"
-        path = Path(grpc_java)
-        utils.cloneGitRepo('git@github.com:grpc/grpc-java.git', path)
-
+    def addGRPCRepo(self, repo, subdir):
+        path = Path(os.path.join(self.grpc_tmp, subdir))
+        utils.cloneGitRepo(repo, path)
         utils.cd(self.includes)
 
+
+    def addGRPCJavaRepo(self):
+        self.addGRPCRepo('git@github.com:grpc/grpc-java.git', "grpc_java")
+        utils.cd(self.includes)
+        src = Path(f"{self.grpc_tmp}/grpc_java/xds/third_party/googleapis")
+        utils.cptree(src)
 
 def parse():
     parser = argparse.ArgumentParser(description="Generate a protobuf directory hierarchy")
@@ -107,7 +144,7 @@ def main():
     args = parse()
     protogen = ProtoGen(args.root_dir, args.proto_project_name, args.proto_dir)
     protogen.makeDirectoryStructure()
-    protogen.addGRPCRepos()
+    protogen.addGRPCJavaRepo()
 
 if __name__ == "__main__":
     main()
